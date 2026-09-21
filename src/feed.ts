@@ -1,5 +1,6 @@
 import { requireRemoteStore } from '@interop/was-react'
 import { waitForRemoteStore } from './blog'
+import { useFollows } from './wasApp'
 import type { Blog, BlogPost, Follow } from './types'
 
 /**
@@ -17,7 +18,8 @@ import type { Blog, BlogPost, Follow } from './types'
  * Every read below is an unsigned public GET -- the same requests any
  * anonymous visitor could make. They borrow the session's `WasClient` purely
  * because `was-react` does not expose a signer-less public reader yet; nothing
- * about the requests is authenticated.
+ * about the requests is authenticated. The one write, `followBlog`, goes to
+ * the reader's own private `follows` collection.
  */
 
 /**
@@ -66,6 +68,37 @@ async function readPublicJson<T>(url: string): Promise<T | null> {
  */
 export async function fetchBlog(blogUrl: string): Promise<Blog | null> {
   return readPublicJson<Blog>(blogUrl)
+}
+
+/**
+ * Follows a blog by its URL. Shared by the paste box, the blog preview and
+ * the Discover page, so every way in stores a follow the same way.
+ *
+ * @param blogUrl {string}
+ * @returns {Promise<void>}
+ */
+export async function followBlog(blogUrl: string): Promise<void> {
+  const url = blogUrl.trim()
+  await useFollows.getState().hydrate()
+  const follows = [...useFollows.getState().byId.values()]
+  if (follows.some((follow) => follow.blogUrl === url)) {
+    throw new Error('Already following that blog.')
+  }
+  await waitForRemoteStore()
+  // Resolve before storing: a URL that answers with a blog document is the
+  // only evidence the follow will ever work, and it costs one GET.
+  const blog = await fetchBlog(url)
+  if (!blog || blog.type !== 'Blog') {
+    throw new Error('No public blog document at that URL.')
+  }
+  const now = new Date().toISOString()
+  await useFollows.getState().insert({
+    id: crypto.randomUUID(),
+    type: 'Follow',
+    blogUrl: url,
+    name: blog.name,
+    followedAt: now,
+  })
 }
 
 /**

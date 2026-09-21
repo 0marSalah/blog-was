@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useFollows } from '../wasApp'
-import { fetchBlog, loadFeed, type FeedError, type FeedItem } from '../feed'
+import { followBlog, loadFeed, type FeedError, type FeedItem } from '../feed'
 import { Markdown } from '../markdown'
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
@@ -21,7 +21,6 @@ import Typography from '@mui/material/Typography'
  */
 export function Feed() {
   const follows = useFollows(useShallow((state) => [...state.byId.values()]))
-  const insertFollow = useFollows((state) => state.insert)
   const removeFollow = useFollows((state) => state.remove)
   const hydrateFollows = useFollows((state) => state.hydrate)
 
@@ -66,24 +65,7 @@ export function Feed() {
     setAdding(true)
     setError(null)
     try {
-      const url = blogUrl.trim()
-      if (follows.some((follow) => follow.blogUrl === url)) {
-        throw new Error('Already following that blog.')
-      }
-      // Resolve before storing: a URL that answers with a blog document is
-      // the only evidence the follow will ever work, and it costs one GET.
-      const blog = await fetchBlog(url)
-      if (!blog || blog.type !== 'Blog') {
-        throw new Error('No public blog document at that URL.')
-      }
-      const now = new Date().toISOString()
-      await insertFollow({
-        id: crypto.randomUUID(),
-        type: 'Follow',
-        blogUrl: url,
-        name: blog.name,
-        followedAt: now,
-      })
+      await followBlog(blogUrl)
       setBlogUrl('')
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -179,7 +161,7 @@ export function Feed() {
               You are not following anyone yet.
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ marginTop: 1, opacity: 0.8 }}>
-              Ask someone for their blog link and paste it above.
+              Find blogs on Discover, or paste a link someone sent you above.
             </Typography>
           </Box>
         )}

@@ -6,6 +6,13 @@ export interface Blog {
   description?: string
 
   /**
+   * The author's answer to "show this blog on the Discover page?": `true` once
+   * the server's directory accepted it, `false` for no. Absent until answered,
+   * which is what makes the question ask itself exactly once per blog.
+   */
+  discoverable?: boolean
+
+  /**
    * This document's own world-readable URL: the blog's stable identity, and
    * the single string a follower has to keep. Composed by `publicUrlFor`
    * from the space + collection + document id, so it is known before the

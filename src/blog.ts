@@ -1,5 +1,6 @@
 import { hasRemoteStore, publicUrlFor, requireRemoteStore } from '@interop/was-react'
-import { BLOG_ID } from './app.config'
+import { BLOG_ID, BLOG_LINK_PARAM } from './app.config'
+import { joinDirectory, leaveDirectory } from './directory'
 import { useBlogs } from './wasApp'
 import type { Blog } from './types'
 
@@ -86,6 +87,35 @@ export function spaceTopology(): { serverUrl: string; spaceId: string } {
 }
 
 /**
+ * The link to hand a person: this app, opened on the blog's preview. The raw
+ * document URL answers with JSON, which only a program wants.
+ *
+ * @param url {string}   the blog document's URL
+ * @returns {string}
+ */
+export function shareLinkFor(url: string): string {
+  const link = new URL(import.meta.env.BASE_URL, window.location.origin)
+  link.searchParams.set(BLOG_LINK_PARAM, url)
+  return link.href
+}
+
+/**
+ * Reads the blog document this session owns, after waiting for the stores it
+ * lives in.
+ *
+ * @returns {Promise<Blog>}
+ */
+async function currentBlog(): Promise<Blog> {
+  await waitForRemoteStore()
+  await useBlogs.getState().hydrate()
+  const existing = useBlogs.getState().byId.get(BLOG_ID)
+  if (!existing) {
+    throw new Error('There is no blog document to update yet.')
+  }
+  return existing
+}
+
+/**
  * Saves the author-editable half of the blog document. Everything else --
  * the URLs, the signing key, `createdAt` -- is composed or fixed, and is
  * carried over untouched.
@@ -106,12 +136,7 @@ export async function updateBlog({
   name: string
   description?: string
 }): Promise<Blog> {
-  await waitForRemoteStore()
-  await useBlogs.getState().hydrate()
-  const existing = useBlogs.getState().byId.get(BLOG_ID)
-  if (!existing) {
-    throw new Error('There is no blog document to update yet.')
-  }
+  const existing = await currentBlog()
 
   const trimmed = description?.trim()
   const updated: Blog = {
@@ -123,6 +148,37 @@ export async function updateBlog({
     updatedAt: new Date().toISOString(),
   }
 
+  await useBlogs.getState().upsert(updated)
+  return updated
+}
+
+/**
+ * Records the author's answer to "show this blog on the Discover page?" --
+ * on the server's directory first, then on the blog document. In that order
+ * so the document never claims a listing the directory refused: a failure
+ * leaves the old answer (or no answer) in place.
+ *
+ * @param options {object}
+ * @param options.discoverable {boolean}
+ * @returns {Promise<Blog>}
+ */
+export async function setDiscoverable({
+  discoverable,
+}: {
+  discoverable: boolean
+}): Promise<Blog> {
+  const existing = await currentBlog()
+  if (discoverable) {
+    await joinDirectory(existing.url)
+  } else if (existing.discoverable) {
+    await leaveDirectory(existing.url)
+  }
+
+  const updated: Blog = {
+    ...existing,
+    discoverable,
+    updatedAt: new Date().toISOString(),
+  }
   await useBlogs.getState().upsert(updated)
   return updated
 }
@@ -164,8 +220,8 @@ let inFlight: { signingKey: string; promise: Promise<Blog> } | null = null
 /**
  * Creates the blog document on first run, and refreshes its URLs on every
  * later run (the space is fixed per identity, but re-composing keeps the
- * document honest if the server URL ever changes). Existing `name` and
- * `createdAt` survive.
+ * document honest if the server URL ever changes). Existing `name`,
+ * `description`, `discoverable` and `createdAt` survive.
  *
  * Concurrency-safe in two layers, because the two races are different: callers
  * in THIS tab share one in-flight promise, while a genuine cross-context race
@@ -218,6 +274,7 @@ async function openBlog({
     type: 'Blog',
     name: existing?.name ?? name,
     description: existing?.description,
+    discoverable: existing?.discoverable,
     url: blogUrl(),
     postsUrl: postsUrl(),
     signingKey,

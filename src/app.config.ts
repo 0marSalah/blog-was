@@ -21,8 +21,13 @@ export const BLOG_ID = 'blog'
  * this constant exists only to notice when the running session is pointed
  * somewhere else (a session persisted against a previous server, restored on
  * reload long after the wallet's own config changed).
+ *
+ * `VITE_EXPECTED_SERVER_URL` overrides it; otherwise a dev build expects the
+ * local teaching server and a production build expects freewallet.cloud.
  */
-export const EXPECTED_SERVER_URL = 'https://freewallet.cloud'
+export const EXPECTED_SERVER_URL: string =
+  import.meta.env.VITE_EXPECTED_SERVER_URL ??
+  (import.meta.env.DEV ? 'http://localhost:3002' : 'https://freewallet.cloud')
 
 /**
  * The name a blog is created with, before its author has set one. Named
@@ -32,3 +37,9 @@ export const EXPECTED_SERVER_URL = 'https://freewallet.cloud'
  * default makes a multi-author timeline unreadable.
  */
 export const DEFAULT_BLOG_NAME = 'My Blog'
+
+/**
+ * The query parameter a share link carries: `?blog=<blog document URL>` opens
+ * that blog's preview once the app loads.
+ */
+export const BLOG_LINK_PARAM = 'blog'

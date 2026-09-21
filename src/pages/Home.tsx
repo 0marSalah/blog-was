@@ -1,8 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useLogout, useSession } from '@interop/was-react'
-import { BLOG_ID, DEFAULT_BLOG_NAME, EXPECTED_SERVER_URL } from '../app.config'
+import {
+  BLOG_ID,
+  BLOG_LINK_PARAM,
+  DEFAULT_BLOG_NAME,
+  EXPECTED_SERVER_URL,
+} from '../app.config'
 import { usePosts } from '../wasApp'
-import { ensureBlog, spaceTopology } from '../blog'
+import { ensureBlog, spaceTopology, waitForRemoteStore } from '../blog'
 import type { Blog } from '../types'
 import Alert from '@mui/material/Alert'
 import AppBar from '@mui/material/AppBar'
@@ -18,14 +23,26 @@ import MenuItem from '@mui/material/MenuItem'
 import Stack from '@mui/material/Stack'
 import Toolbar from '@mui/material/Toolbar'
 import Typography from '@mui/material/Typography'
+import { BlogPreview } from './BlogPreview'
 import { Compose } from './Compose'
+import { Discover } from './Discover'
+import { DiscoverPrompt } from './DiscoverPrompt'
 import { Feed } from './Feed'
 import { Profile } from './Profile'
 
-type View = 'blog' | 'reading' | 'write'
+type View = 'blog' | 'reading' | 'discover' | 'preview' | 'write'
 
 /**
- * The signed-in shell: a masthead bar, three views, and the one piece of
+ * The blog a share link (`?blog=<url>`) opened the app on, if any.
+ *
+ * @returns {string | null}
+ */
+function linkedBlogUrl(): string | null {
+  return new URLSearchParams(window.location.search).get(BLOG_LINK_PARAM)
+}
+
+/**
+ * The signed-in shell: a masthead bar, the views, and the one piece of
  * bootstrap all of them depend on -- the blog document.
  *
  * The chrome is deliberately thin. Everything this app does that a reader
@@ -40,11 +57,22 @@ export function Home() {
   const query = usePosts((state) => state.query)
   const patch = usePosts((state) => state.patch)
 
-  const [view, setView] = useState<View>('blog')
+  const [previewUrl, setPreviewUrl] = useState<string | null>(linkedBlogUrl)
+  const [view, setView] = useState<View>(() => (linkedBlogUrl() ? 'preview' : 'blog'))
   const [blog, setBlog] = useState<Blog | null>(null)
   const [blogError, setBlogError] = useState<string | null>(null)
   const [serverUrl, setServerUrl] = useState<string | null>(null)
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null)
+
+  // The share link has done its job once the preview is open; left in the
+  // address bar, it would reopen the same preview on every reload.
+  useEffect(() => {
+    const current = new URL(window.location.href)
+    if (current.searchParams.has(BLOG_LINK_PARAM)) {
+      current.searchParams.delete(BLOG_LINK_PARAM)
+      window.history.replaceState(null, '', current)
+    }
+  }, [])
 
   // The blog document has to exist before a post can point at it: a post is
   // attributed to the blog's URL, and that URL is only meaningful once
@@ -82,6 +110,7 @@ export function Home() {
   useEffect(() => {
     void (async () => {
       try {
+        await waitForRemoteStore()
         const { docs } = await query({ equals: { blogId: BLOG_ID } })
         for (const doc of docs) {
           patch(doc)
@@ -91,6 +120,11 @@ export function Home() {
       }
     })()
   }, [query, patch])
+
+  function openPreview(blogUrl: string) {
+    setPreviewUrl(blogUrl)
+    setView('preview')
+  }
 
   const title = blog?.name ?? 'Blog'
 
@@ -132,6 +166,11 @@ export function Home() {
 
             <NavLink label="Your blog" active={view === 'blog'} onClick={() => setView('blog')} />
             <NavLink label="Reading" active={view === 'reading'} onClick={() => setView('reading')} />
+            <NavLink
+              label="Discover"
+              active={view === 'discover' || view === 'preview'}
+              onClick={() => setView('discover')}
+            />
 
             <Button
               variant="contained"
@@ -245,6 +284,17 @@ export function Home() {
 
           {view === 'reading' && <Feed />}
 
+          {view === 'discover' && <Discover ownBlogUrl={blog?.url} onOpen={openPreview} />}
+
+          {view === 'preview' && previewUrl && (
+            <BlogPreview
+              key={previewUrl}
+              blogUrl={previewUrl}
+              ownBlogUrl={blog?.url}
+              onBack={() => setView('discover')}
+            />
+          )}
+
           {blog && view === 'blog' && (
             <Profile blog={blog} onBlogChange={setBlog} onWrite={() => setView('write')} />
           )}
@@ -254,6 +304,8 @@ export function Home() {
           )}
         </Stack>
       </Container>
+
+      {blog && <DiscoverPrompt blog={blog} onBlogChange={setBlog} />}
     </Box>
   )
 }

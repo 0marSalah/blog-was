@@ -29,16 +29,23 @@ observed over the wire, it says so.
   refreshes it; `blogUrl()` / `postsUrl()` / `spaceTopology()` compose the
   addresses that make it followable. Also `waitForRemoteStore()`, which
   everything here depends on.
-- `src/feed.ts` -- the read side. `fetchBlog()`, `fetchPosts()`, `loadFeed()`.
-  Every request in this file is an unsigned public GET.
+- `src/feed.ts` -- the read side. `fetchBlog()`, `fetchPosts()`, `loadFeed()`,
+  every one an unsigned public GET, plus `followBlog()`, the one write (to the
+  private `follows` collection) that every way of following goes through.
+- `src/directory.ts` -- the server's opt-in blog directory: `listDirectory()`
+  (unsigned GET), `joinDirectory()` / `leaveDirectory()` (signed with the
+  session key).
 - `src/types.ts` -- the data model (`Blog`, `BlogPost`, `Follow`, `AssetRef`).
   Still deliberately ignorant of WAS.
 - `src/WasConnection.tsx` -- switches between `Auth` and `Home` on session
   status. No router for two screens.
 - `src/pages/Auth.tsx` -- one button. App Connect via CHAPI.
-- `src/pages/Home.tsx` -- protected. Publish form, your own posts, the blog's
-  public URL to hand out, and the Home/Feed tabs.
+- `src/pages/Home.tsx` -- protected. The masthead nav, the views, the
+  `?blog=` share-link entry point, and the one-time Discover question.
 - `src/pages/Feed.tsx` -- follow a blog by URL, and the merged timeline.
+- `src/pages/Discover.tsx` -- the directory's blogs, each read live.
+- `src/pages/BlogPreview.tsx` -- one blog read from outside, with Follow.
+- `src/pages/DiscoverPrompt.tsx` -- "Show your blog on the Discover page?"
 - `src/styles/theme.ts` -- MUI, dark mode, that's it.
 
 Gone since the last version of this doc: `src/wasRequest.ts` (`WasServer`)
@@ -207,7 +214,7 @@ Three sharp edges found the hard way:
   `filter[attr]=value` GET, not the query endpoint. Don't reach for `query`
   when extending the read path.
 
-## Discovery is still the unsolved problem
+## Discovery: an opt-in directory on the server
 
 A reader can only read a Space whose id someone handed them. Checked directly:
 
@@ -218,16 +225,32 @@ GET /space/:id       -> 404 anonymously  -- only the collections carry the
                         public policy, not the Space around them
 ```
 
-So no server will ever answer "what public blogs do you host?" There is no
-index to crawl and no directory to join. Every design here has to supply its
-own answer, and the current one is the weakest possible: the reader pastes a
-URL.
+So no WAS server answers "what public blogs do you host?" on its own, and no
+client can find out by crawling. The answer this app settled on is a small
+opt-in directory that `was-teaching-server` hosts beside the protocol
+(`/directory/blogs`, turned on with `WAS_BLOG_DIRECTORY=true`):
+
+- The directory holds only blog URLs. Listing it is an unsigned GET, and the
+  Discover page reads every blog's own document live, so a card never shows a
+  stale name and a blog that stopped answering simply drops out.
+- Joining and leaving are signed with the session key, and the server accepts
+  them only when that key is the `signingKey` the public blog document names.
+  That is the one place `signingKey` does real work: it proves the request
+  came from the blog's own app, so nobody can list someone else's blog.
+- The author is asked once, right after the blog exists. The answer is stored
+  on the blog document as `discoverable`, so it follows the author across
+  devices instead of living in one browser, and the blog page has a switch to
+  change it.
+- The server reads the blog from its own storage before listing it, so a blog
+  created seconds ago is refused until sync has pushed it. `joinDirectory`
+  waits for the document to answer publicly first.
 
 An earlier attempt at this shipped a client-side blogroll -- a seed list in
 `localStorage`, grown by share links -- and was replaced by the follow model,
 which stores the same thing durably in a private collection instead of a
-browser. The underlying problem is unchanged: someone still has to hand you
-the first URL.
+browser. Share links still matter alongside the directory: "Copy link" now
+hands out an app link (`?blog=<blog URL>`) that opens the blog's preview,
+instead of a URL that answers with JSON.
 
 ## One concurrency bug worth remembering
 
@@ -341,7 +364,8 @@ post is write-once). No pagination anywhere -- `loadFeed` reads every post of
 every followed blog on every refresh, which is fine for a handful and
 obviously not for more. No editing of the blog's name or description after
 first run. Reading still requires a session for no good reason (above).
-Discovery is unsolved and probably unsolvable at this layer.
+The Discover directory has no moderation tooling yet: removing a bad entry
+means the server operator's key, or editing server storage directly.
 
 And nothing here is a *page*: a post has a URL that returns JSON, not
 something a second person can visit and read. The ActivityPub port the data

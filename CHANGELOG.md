@@ -8,6 +8,20 @@ pre-release and does not yet carry version numbers.
 
 ### Added
 
+- **Discover page.** Blogs whose authors opted in, read from the server's blog
+  directory (`/directory/blogs` on `was-teaching-server`). Each card is loaded
+  live from the blog's own document; opening one shows a preview with a
+  Follow button.
+- **"Show your blog on the Discover page?"** Asked once after the blog exists,
+  stored on the blog document as `discoverable`, and switchable from the blog
+  page. Joining and leaving are signed with the session key, which the server
+  checks against the blog's `signingKey`.
+- **Blog preview.** Any blog can be opened and read before following it.
+- **Share links open the app.** "Copy link" gives `?blog=<blog URL>`, which
+  opens that blog's preview, instead of the raw JSON document URL.
+- `src/directory.ts` -- `listDirectory()`, `joinDirectory()`,
+  `leaveDirectory()`. `followBlog()` in `src/feed.ts` is now shared by every
+  way to follow.
 - **Blog identity documents.** A public `blogs` collection holding one `Blog`
   per author, carrying its own world-readable `url` plus a `postsUrl` pointer
   at the posts collection. This is the actor half of ActivityPub's
